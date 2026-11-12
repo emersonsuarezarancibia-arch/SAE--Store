@@ -5,6 +5,7 @@ const defaultProducts = [
         title: "iPhone 16 Pro Max 1TB",
         category: "iphone",
         priceUsd: 2200,
+        costUsd: 1900,
         discountPercent: 15,
         isSold: false,
         soldAt: null,
@@ -20,6 +21,7 @@ const defaultProducts = [
         title: "iPhone 16 Pro 256GB",
         category: "iphone",
         priceUsd: 1350,
+        costUsd: 1150,
         discountPercent: 0,
         isSold: false,
         soldAt: null,
@@ -34,6 +36,7 @@ const defaultProducts = [
         title: "MacBook Pro 16\" M3 Max",
         category: "macbook",
         priceUsd: 2650,
+        costUsd: 2300,
         discountPercent: 10,
         isSold: false,
         soldAt: null,
@@ -45,52 +48,9 @@ const defaultProducts = [
     }
 ];
 
-// FUNCIONES DE PERSISTENCIA EN LOCALSTORAGE
-function loadStoredExchangeRate() {
-    const stored = localStorage.getItem('sae_exchange_rate');
-    return stored ? parseFloat(stored) : 10.50;
-}
-
-function saveStoredExchangeRate(rate) {
-    localStorage.setItem('sae_exchange_rate', rate);
-}
-
-function loadStoredProducts() {
-    const stored = localStorage.getItem('sae_products_catalog');
-    if (stored) {
-        try {
-            return JSON.parse(stored);
-        } catch (e) {
-            console.error("Error al cargar localStorage", e);
-        }
-    }
-    return defaultProducts;
-}
-
-function saveStoredProducts() {
-    localStorage.setItem('sae_products_catalog', JSON.stringify(products));
-}
-
-function restoreDefaultData() {
-    if (confirm("¿Estás seguro de que deseas restablecer el catálogo al estado inicial de fábrica?")) {
-        localStorage.removeItem('sae_products_catalog');
-        localStorage.removeItem('sae_exchange_rate');
-        exchangeRate = 10.50;
-        products = [...defaultProducts];
-        
-        document.getElementById('globalExchangeRateInput').value = exchangeRate;
-        document.getElementById('navExchangeRate').textContent = exchangeRate.toFixed(2);
-        
-        renderProducts();
-        renderAdminProductsTable();
-        updateCartUI();
-        showToast("Catálogo restablecido al estado por defecto.");
-    }
-}
-
 // VARIABLES GLOBALES
-let exchangeRate = loadStoredExchangeRate();
-let products = loadStoredProducts();
+let exchangeRate = 10.50;
+let products = [...defaultProducts];
 let currentFormImages = [];
 let currentModalImageIndex = 0;
 let currentCategory = 'all';
@@ -98,11 +58,16 @@ let currentMaxPrice = 28000;
 let currentSearchQuery = '';
 let cart = [];
 let activeModalProduct = null;
+let isFirebaseReady = false;
 
+// INICIALIZACIÓN Y CONEXIÓN EN TIEMPO REAL CON FIRESTORE
 window.addEventListener('DOMContentLoaded', () => {
-    document.getElementById('globalExchangeRateInput').value = exchangeRate;
-    document.getElementById('navExchangeRate').textContent = exchangeRate.toFixed(2);
-    renderProducts();
+    const checkFirebaseInterval = setInterval(() => {
+        if (window.db) {
+            clearInterval(checkFirebaseInterval);
+            initFirestoreSync();
+        }
+    }, 100);
 
     const observer = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
@@ -114,6 +79,68 @@ window.addEventListener('DOMContentLoaded', () => {
     const titleEl = document.getElementById('heroTitle');
     if (titleEl) observer.observe(titleEl);
 });
+
+function initFirestoreSync() {
+    const storeRef = window.firebaseDoc(window.db, "stores", "sae_store_data");
+
+    window.firebaseOnSnapshot(storeRef, async (docSnap) => {
+        if (docSnap.exists()) {
+            const data = docSnap.data();
+            exchangeRate = data.exchangeRate !== undefined ? data.exchangeRate : 10.50;
+            products = data.products && data.products.length > 0 ? data.products : defaultProducts;
+        } else {
+            await window.firebaseSetDoc(storeRef, {
+                exchangeRate: 10.50,
+                products: defaultProducts
+            });
+            exchangeRate = 10.50;
+            products = [...defaultProducts];
+        }
+
+        isFirebaseReady = true;
+        document.getElementById('globalExchangeRateInput').value = exchangeRate;
+        document.getElementById('navExchangeRate').textContent = exchangeRate.toFixed(2);
+        
+        renderProducts();
+        if (!document.getElementById('adminPanelModal').classList.contains('hidden')) {
+            renderAdminProductsTable();
+        }
+        updateCartUI();
+    }, (error) => {
+        console.error("Error al sincronizar con Firestore:", error);
+        showToast("Error de sincronización con la base de datos", "error");
+    });
+}
+
+async function saveStoreToDatabase() {
+    if (!isFirebaseReady) return;
+    try {
+        const storeRef = window.firebaseDoc(window.db, "stores", "sae_store_data");
+        await window.firebaseSetDoc(storeRef, {
+            exchangeRate: exchangeRate,
+            products: products
+        });
+    } catch (e) {
+        console.error("Error al guardar en Firestore:", e);
+        showToast("Error al guardar en la base de datos", "error");
+    }
+}
+
+function restoreDefaultData() {
+    if (confirm("¿Estás seguro de que deseas restablecer el catálogo al estado inicial de fábrica en la nube?")) {
+        exchangeRate = 10.50;
+        products = [...defaultProducts];
+        saveStoreToDatabase();
+        
+        document.getElementById('globalExchangeRateInput').value = exchangeRate;
+        document.getElementById('navExchangeRate').textContent = exchangeRate.toFixed(2);
+        
+        renderProducts();
+        renderAdminProductsTable();
+        updateCartUI();
+        showToast("Catálogo restablecido al estado por defecto.");
+    }
+}
 
 function calculateBs(usdValue) {
     return Math.round(usdValue * exchangeRate);
@@ -146,7 +173,7 @@ function cleanExpiredSoldProducts() {
     });
 
     if (products.length !== initialLen) {
-        saveStoredProducts();
+        saveStoreToDatabase();
     }
 }
 
@@ -270,7 +297,7 @@ function renderProducts() {
                     <div class="mt-3 flex items-center justify-between">
                         <div class="flex items-center gap-1.5 text-[10px] text-emerald-400 font-semibold bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-lg w-fit">
                             <i class="fa-solid fa-shield-check"></i>
-                            <span>Garantía de 3 Meses</span>
+                            <span>Garantía de 1 Mes</span>
                         </div>
                         ${product.isSold ? `<span class="text-[10px] font-mono text-rose-400 font-bold">Agotado</span>` : ''}
                     </div>
@@ -280,10 +307,13 @@ function renderProducts() {
                             ${priceInfo.hasDiscount ? `
                                 <div class="flex items-center gap-2">
                                     <span class="text-xl font-bold font-mono text-amber-400">${priceInfo.discountedBs.toLocaleString()} Bs</span>
-                                    <span class="text-xs font-mono text-gray-500 line-through">${priceInfo.originalBs.toLocaleString()} Bs</span>                                 </div>                                 <span class="text-[10px] text-gray-500 font-mono block">($${Math.round(priceInfo.discountedUsd)} USD)</span>
+                                    <span class="text-xs font-mono text-gray-500 line-through">${priceInfo.originalBs.toLocaleString()} Bs</span>
+                                </div>
+                                <span class="text-[10px] text-gray-500 font-mono block">($${Math.round(priceInfo.discountedUsd)} USD)</span>
                             ` : `
                                 <span class="text-xs text-gray-500 block font-mono">Bs.</span>
-                                <span class="text-xl font-bold font-mono ${product.isSold ? 'text-gray-400 line-through' : 'text-emerald-400'}">${priceInfo.originalBs.toLocaleString()}</span>                                 <span class="text-[10px] text-gray-500 font-mono block">($${product.priceUsd} USD)</span>
+                                <span class="text-xl font-bold font-mono ${product.isSold ? 'text-gray-400 line-through' : 'text-emerald-400'}">${priceInfo.originalBs.toLocaleString()}</span>
+                                <span class="text-[10px] text-gray-500 font-mono block">($${product.priceUsd} USD)</span>
                             `}
                         </div>
 
@@ -464,7 +494,7 @@ function sendWhatsAppOrder() {
 
     msg += `-----------------------------------\n`;
     msg += `*TOTAL ESTIMADO:* ${totalBsAcc.toLocaleString()} Bs\n`;
-    msg += `*Garantía:* 3 Meses SAE Cobertura Incluida\n`;
+    msg += `*Garantía:* 1 Mes SAE Cobertura Incluida\n`;
     msg += `*Tipo de Cambio Aplicado:* $1 USD = ${exchangeRate.toFixed(2)} Bs\n\n`;
     msg += `Hola SAE STORE, deseo coordinar la compra y entrega de este pedido.`;
 
@@ -618,7 +648,7 @@ function updateGlobalExchangeRate() {
     }
 
     exchangeRate = newRate;
-    saveStoredExchangeRate(exchangeRate);
+    saveStoreToDatabase();
 
     document.getElementById('navExchangeRate').textContent = exchangeRate.toFixed(2);
     
@@ -626,7 +656,7 @@ function updateGlobalExchangeRate() {
     renderAdminProductsTable();
     updateCartUI();
 
-    showToast(`¡Precios actualizados a ${exchangeRate.toFixed(2)} Bs y guardados!`);
+    showToast(`¡Precios actualizados a ${exchangeRate.toFixed(2)} Bs y sincronizados!`);
 }
 
 function handleLocalFilesSelect(e) {
@@ -685,7 +715,11 @@ function toggleSoldStatus(productId) {
     p.isSold = !p.isSold;
     p.soldAt = p.isSold ? Date.now() : null;
 
-    saveStoredProducts();
+    if (p.isSold && !p.costUsd) {
+        p.costUsd = Math.round(p.priceUsd * 0.75);
+    }
+
+    saveStoreToDatabase();
 
     if (p.isSold) showToast(`"${p.title}" marcado como VENDIDO.`);
     else showToast(`"${p.title}" reacondicionado a DISPONIBLE.`);
@@ -734,6 +768,62 @@ function renderAdminProductsTable() {
         `;
         tbody.appendChild(tr);
     });
+
+    renderAdminSoldProductsTable();
+}
+
+function renderAdminSoldProductsTable() {
+    const tbody = document.getElementById('adminSoldProductsTable');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    const soldProducts = products.filter(p => p.isSold);
+    let totalProfitBs = 0;
+
+    if (soldProducts.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="5" class="text-center py-8 text-gray-500 italic">
+                    Aún no hay registros de dispositivos vendidos.
+                </td>
+            </tr>
+        `;
+        document.getElementById('adminTotalProfit').textContent = "0 Bs";
+        return;
+    }
+
+    soldProducts.forEach(p => {
+        const priceInfo = calculateEffectivePrice(p);
+        const sellingPriceBs = priceInfo.discountedBs;
+        
+        const costUsd = p.costUsd || Math.round(p.priceUsd * 0.75);
+        const costBs = calculateBs(costUsd);
+        
+        const profitBs = sellingPriceBs - costBs;
+        totalProfitBs += profitBs;
+
+        const saleDate = p.soldAt ? new Date(p.soldAt).toLocaleDateString('es-BO', { 
+            day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' 
+        }) : 'Fecha no registrada';
+
+        const firstImg = (p.images && p.images.length > 0) ? p.images[0] : '';
+
+        const tr = document.createElement('tr');
+        tr.className = "hover:bg-apple-hover/50 transition-colors";
+        tr.innerHTML = `
+            <td class="py-3 pr-2 flex items-center gap-2">
+                <img src="${firstImg}" class="w-8 h-8 object-contain bg-black rounded p-0.5 grayscale">
+                <span class="font-bold text-white truncate max-w-[180px]">${p.title}</span>
+            </td>
+            <td class="py-3 font-mono text-gray-300">${sellingPriceBs.toLocaleString()} Bs</td>
+            <td class="py-3 font-mono text-gray-400">$${costUsd} USD (${costBs.toLocaleString()} Bs)</td>
+            <td class="py-3 font-mono font-bold text-emerald-400">+${profitBs.toLocaleString()} Bs</td>
+            <td class="py-3 text-right font-mono text-gray-400 text-[11px]">${saleDate}</td>
+        `;
+        tbody.appendChild(tr);
+    });
+
+    document.getElementById('adminTotalProfit').textContent = `${totalProfitBs.toLocaleString()} Bs`;
 }
 
 function handleSaveProduct(e) {
@@ -743,6 +833,7 @@ function handleSaveProduct(e) {
     const title = document.getElementById('prodTitle').value;
     const category = document.getElementById('prodCategory').value;
     const priceUsd = parseFloat(document.getElementById('prodPriceUsd').value);
+    const costUsd = parseFloat(document.getElementById('prodCostUsd').value) || Math.round(priceUsd * 0.75);
     const discountPercent = parseInt(document.getElementById('prodDiscount').value) || 0;
     const isSold = document.getElementById('prodSoldStatus').value === 'sold';
     const description = document.getElementById('prodDesc').value;
@@ -762,6 +853,7 @@ function handleSaveProduct(e) {
                 title, 
                 category, 
                 priceUsd, 
+                costUsd,
                 discountPercent, 
                 isSold, 
                 soldAt, 
@@ -769,7 +861,7 @@ function handleSaveProduct(e) {
                 description,
                 currentImageIndex: 0 
             };
-            showToast("Dispositivo actualizado y guardado");
+            showToast("Dispositivo actualizado y sincronizado");
         }
     } else {
         const newProd = {
@@ -777,6 +869,7 @@ function handleSaveProduct(e) {
             title,
             category,
             priceUsd,
+            costUsd,
             discountPercent,
             isSold,
             soldAt: isSold ? Date.now() : null,
@@ -785,10 +878,10 @@ function handleSaveProduct(e) {
             currentImageIndex: 0
         };
         products.unshift(newProd);
-        showToast("Nuevo dispositivo agregado y guardado");
+        showToast("Nuevo dispositivo agregado y sincronizado");
     }
 
-    saveStoredProducts();
+    saveStoreToDatabase();
     resetProductForm();
     renderProducts();
     renderAdminProductsTable();
@@ -802,6 +895,7 @@ function editProduct(productId) {
     document.getElementById('prodTitle').value = p.title;
     document.getElementById('prodCategory').value = p.category;
     document.getElementById('prodPriceUsd').value = p.priceUsd;
+    document.getElementById('prodCostUsd').value = p.costUsd || Math.round(p.priceUsd * 0.75);
     document.getElementById('prodDiscount').value = p.discountPercent || 0;
     document.getElementById('prodSoldStatus').value = p.isSold ? 'sold' : 'available';
     document.getElementById('prodDesc').value = p.description;
@@ -817,11 +911,11 @@ function deleteProduct(productId) {
     products = products.filter(p => p.id !== productId);
     cart = cart.filter(c => c.id !== productId);
     
-    saveStoredProducts();
+    saveStoreToDatabase();
     renderProducts();
     renderAdminProductsTable();
     updateCartUI();
-    showToast("Producto eliminado permanentemente", "error");
+    showToast("Producto eliminado de la base de datos", "error");
 }
 
 function resetProductForm() {

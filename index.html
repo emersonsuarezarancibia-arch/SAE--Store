@@ -36,6 +36,31 @@
     
     <!-- Estilos Personalizados -->
     <link rel="stylesheet" href="Styles.css">
+
+    <!-- FIREBASE SDKs & CONFIGURACIÓN OFICIAL -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-app.js";
+        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyCSQGntItT1MYyNWzJUbuWVdRbDRAkGmZc",
+            authDomain: "sae-store-bolivia.firebaseapp.com",
+            projectId: "sae-store-bolivia",
+            storageBucket: "sae-store-bolivia.firebasestorage.app",
+            messagingSenderId: "637377248435",
+            appId: "1:637377248435:web:aa3965c154657665b6c4c6",
+            measurementId: "G-EX6LB13WCB"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        // Exponemos las herramientas globalmente para script.js
+        window.db = db;
+        window.firebaseDoc = doc;
+        window.firebaseSetDoc = setDoc;
+        window.firebaseOnSnapshot = onSnapshot;
+    </script>
 </head>
 <body class="bg-black text-white selection:bg-white selection:text-black">
 
@@ -436,7 +461,7 @@
                             <h2 class="text-lg font-bold text-white">Actualizador Global de Dólar / Bolivianos</h2>
                         </div>
                         <p class="text-xs text-gray-300 leading-relaxed max-w-2xl">
-                            Ajusta la tasa de cambio aquí y presiona <strong>Actualizar Todo</strong>. Se guardará permanentemente en el navegador.
+                            Ajusta la tasa de cambio aquí y presiona <strong>Actualizar Todo</strong>. Se sincronizará en la nube para todos los visitantes.
                         </p>
                     </div>
 
@@ -498,10 +523,19 @@
                                 </div>
 
                                 <div>
-                                    <label class="block text-xs font-medium text-gray-400 mb-1">Precio en USD ($)</label>
+                                    <label class="block text-xs font-medium text-gray-400 mb-1">Precio Venta USD ($)</label>
                                     <input type="number" id="prodPriceUsd" step="1" min="1" placeholder="Ej: 1200" required
                                            class="w-full px-3 py-2 bg-apple-dark border border-apple-border rounded-xl text-xs text-white placeholder-gray-600 focus:outline-none focus:border-white">
                                 </div>
+                            </div>
+
+                            <div>
+                                <label class="block text-xs font-medium text-emerald-400 mb-1 font-semibold flex items-center justify-between">
+                                    <span><i class="fa-solid fa-tag mr-1"></i> Costo / Inversión Base (USD)</span>
+                                    <span class="text-[10px] text-gray-400 font-normal">Para ganancia</span>
+                                </label>
+                                <input type="number" id="prodCostUsd" step="1" min="0" placeholder="Ej: 950 (Costo real)" required
+                                       class="w-full px-3 py-2 bg-apple-dark border border-apple-border rounded-xl text-xs text-white placeholder-gray-600 focus:outline-none focus:border-emerald-400">
                             </div>
 
                             <div>
@@ -561,8 +595,9 @@
                     </div>
                 </div>
 
-                <!-- Tabla de Inventario -->
-                <div class="lg:col-span-2">
+                <!-- Tabla de Inventario y Ventas -->
+                <div class="lg:col-span-2 space-y-8">
+                    <!-- Inventario Activo -->
                     <div class="bg-apple-card border border-apple-border rounded-3xl p-6">
                         <div class="flex items-center justify-between mb-4">
                             <h3 class="text-base font-bold text-white flex items-center gap-2">
@@ -584,6 +619,46 @@
                                     </tr>
                                 </thead>
                                 <tbody id="adminProductsTable" class="divide-y divide-apple-border"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- NUEVA SECCIÓN: HISTORIAL DE VENTAS Y GANANCIAS NETAS -->
+                    <div class="bg-apple-card border border-apple-border rounded-3xl p-6">
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-4 border-b border-apple-border">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center">
+                                    <i class="fa-solid fa-chart-line text-emerald-400 text-lg"></i>
+                                </div>
+                                <div>
+                                    <h3 class="text-base font-bold text-white">Registro de Ventas & Ganancias</h3>
+                                    <p class="text-xs text-gray-400">Monto obtenido y margen comercial neto.</p>
+                                </div>
+                            </div>
+                            
+                            <div class="bg-apple-dark border border-apple-border px-4 py-2.5 rounded-2xl flex items-center gap-3">
+                                <div class="text-right">
+                                    <span class="block text-[9px] text-gray-400 uppercase tracking-widest font-bold">Ganancia Total Neta:</span>
+                                    <span id="adminTotalProfit" class="text-lg font-bold font-mono text-emerald-400">0 Bs</span>
+                                </div>
+                                <div class="w-7 h-7 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400">
+                                    <i class="fa-solid fa-sack-dollar text-xs"></i>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-xs">
+                                <thead>
+                                    <tr class="border-b border-apple-border text-gray-400 font-medium">
+                                        <th class="pb-3 pr-2">Dispositivo Vendido</th>
+                                        <th class="pb-3">Precio Venta (Bs)</th>
+                                        <th class="pb-3">Inversión (USD)</th>
+                                        <th class="pb-3 font-bold text-emerald-400">Ganancia (Bs)</th>
+                                        <th class="pb-3 text-right">Fecha de Venta</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="adminSoldProductsTable" class="divide-y divide-apple-border"></tbody>
                             </table>
                         </div>
                     </div>
